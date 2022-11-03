@@ -1,2 +1,11 @@
-[workspace]
-members = ["sup-server", "sup-client", "sup-lib"]
+[package]
+name = "sup-rs"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bus = "2.3.0"
+crossbeam = { version = "0.8.2", features = ["crossbeam-channel"] }
+crossbeam-utils = "0.8.12"
