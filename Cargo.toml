@@ -9,3 +9,9 @@ edition = "2021"
 bus = "2.3.0"
 crossbeam = { version = "0.8.2", features = ["crossbeam-channel"] }
 crossbeam-utils = "0.8.12"
+env_logger = "0.9.1"
+log = "0.4.17"
+num_cpus = "1.14.0"
+serde = { version = "1.0.147", features = ["derive"] }
+serde_derive = "1.0.147"
+thiserror = "1.0.37"
