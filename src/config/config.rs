@@ -2,31 +2,30 @@ use std::{collections::HashMap, str::FromStr};
 
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 struct Config {
     sup: Sup,
     program: Program,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 struct Sup {
     #[serde(default = "default_socket")]
     socket: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 struct Program {
     process: Process,
     log: Log,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all(deserialize = "camelCase"))]
 struct Process {
     path: String,
-    args: Vec<String>,
-    #[serde(default)]
-    envs: HashMap<String, String>,
+    args: Option<Vec<String>>,
+    envs: Option<HashMap<String, String>>,
     #[serde(default = "default_work_dir")]
     work_dir: String,
     #[serde(default = "default_auto_start")]
@@ -37,7 +36,7 @@ struct Process {
     restart_strategy: ProcessRestartStrategy,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all(deserialize = "camelCase"))]
 struct Log {
     path: String,
@@ -129,8 +128,31 @@ maxSize = 128
 ";
         let t: Config = toml::from_str(s).unwrap();
         assert_eq!(
-            t.program.process.restart_strategy,
-            ProcessRestartStrategy::Always
+            t,
+            Config {
+                sup: Sup {
+                    socket: "/home/work/test/monitor/test-run/supd/run.sock".to_string()
+                },
+                program: Program {
+                    process: Process {
+                        path: "/home/work/test/monitor/test-run/conf/run.sh".to_string(),
+                        args: None,
+                        envs: None,
+                        work_dir: "/home/work/test/monitor/test-run".to_string(),
+                        auto_start: true,
+                        start_interval: 5,
+                        restart_strategy: ProcessRestartStrategy::OnFailure,
+                    },
+                    log: Log {
+                        path: "/home/work/test/monitor/test-run/log/run.log".to_string(),
+                        max_size: 128,
+                        max_days: 30,
+                        max_backups: 16,
+                        compress: false,
+                        merge_compressed: false
+                    }
+                }
+            }
         );
     }
 }
