@@ -1,0 +1,17 @@
+[sup]
+socket = "/home/work/test/monitor/test-run/supd/run.sock"
+
+[program]
+[program.process]
+path = "/home/work/test/monitor/test-run/conf/run.sh"
+workDir = "/home/work/test/monitor/test-run"
+startSeconds = 5
+autoStart = true
+restartStrategy = "on-failure"
+
+[program.log]
+path = "/home/work/test/monitor/test-run/log/run.log"
+compress = false
+maxDays = 30
+maxBackups = 16
+maxSize = 128

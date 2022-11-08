@@ -1,9 +1,16 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{
+    collections::HashMap,
+    env, fs,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use serde::Deserialize;
 
+use super::error;
+
 #[derive(Debug, Deserialize, PartialEq)]
-struct Config {
+pub struct Config {
     sup: Sup,
     program: Program,
 }
@@ -11,7 +18,7 @@ struct Config {
 #[derive(Debug, Deserialize, PartialEq)]
 struct Sup {
     #[serde(default = "default_socket")]
-    socket: String,
+    socket: PathBuf,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -23,11 +30,11 @@ struct Program {
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all(deserialize = "camelCase"))]
 struct Process {
-    path: String,
+    path: PathBuf,
     args: Option<Vec<String>>,
     envs: Option<HashMap<String, String>>,
     #[serde(default = "default_work_dir")]
-    work_dir: String,
+    work_dir: PathBuf,
     #[serde(default = "default_auto_start")]
     auto_start: bool,
     #[serde(rename = "startSeconds", default = "default_start_interval")]
@@ -39,7 +46,7 @@ struct Process {
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all(deserialize = "camelCase"))]
 struct Log {
-    path: String,
+    path: PathBuf,
     #[serde(default = "default_max_size")]
     max_size: u64,
     #[serde(default = "default_max_days")]
@@ -62,12 +69,54 @@ enum ProcessRestartStrategy {
     AlwaysNot,
 }
 
-fn default_socket() -> String {
-    String::from_str("./sup.sock").unwrap()
+impl Config {
+    pub fn new(path: &str) -> Result<Self, error::Error> {
+        let sr = fs::read_to_string(path);
+        let mut s = String::new();
+        match sr {
+            Err(e) => {
+                return Err(error::Error::ReadFileError(format!(
+                    "read path {} failed: {}",
+                    path, e
+                )))
+            }
+            Ok(p) => s.push_str(p.as_str()),
+        }
+
+        let mut t: Config = toml::from_str(s.as_str()).unwrap();
+
+        let work_dir = &t.program.process.work_dir;
+        if !work_dir.is_absolute() {
+            return Err(error::Error::FormatCheckError(
+                "work directory must be absolute".to_string(),
+            ));
+        }
+
+        let path = &t.program.process.path;
+        if !path.is_absolute() {
+            t.program.process.path = Path::join(work_dir.as_path(), path);
+        }
+
+        let socket = &t.sup.socket;
+        if !socket.is_absolute() {
+            t.sup.socket = Path::join(work_dir.as_path(), socket);
+        }
+
+        let logp = &t.program.log.path;
+        if !logp.is_absolute() {
+            t.program.log.path = Path::join(work_dir.as_path(), logp);
+        }
+
+        Ok(t)
+    }
 }
 
-fn default_work_dir() -> String {
-    String::from_str("").unwrap()
+fn default_socket() -> PathBuf {
+    PathBuf::from_str("./sup.sock").unwrap()
+}
+
+fn default_work_dir() -> PathBuf {
+    env::current_dir().unwrap()
 }
 
 fn default_auto_start() -> bool {
@@ -131,20 +180,23 @@ maxSize = 128
             t,
             Config {
                 sup: Sup {
-                    socket: "/home/work/test/monitor/test-run/supd/run.sock".to_string()
+                    socket: PathBuf::from_str("/home/work/test/monitor/test-run/supd/run.sock")
+                        .unwrap()
                 },
                 program: Program {
                     process: Process {
-                        path: "/home/work/test/monitor/test-run/conf/run.sh".to_string(),
+                        path: PathBuf::from_str("/home/work/test/monitor/test-run/conf/run.sh")
+                            .unwrap(),
                         args: None,
                         envs: None,
-                        work_dir: "/home/work/test/monitor/test-run".to_string(),
+                        work_dir: PathBuf::from_str("/home/work/test/monitor/test-run").unwrap(),
                         auto_start: true,
                         start_interval: 5,
                         restart_strategy: ProcessRestartStrategy::OnFailure,
                     },
                     log: Log {
-                        path: "/home/work/test/monitor/test-run/log/run.log".to_string(),
+                        path: PathBuf::from_str("/home/work/test/monitor/test-run/log/run.log")
+                            .unwrap(),
                         max_size: 128,
                         max_days: 30,
                         max_backups: 16,
@@ -154,5 +206,52 @@ maxSize = 128
                 }
             }
         );
+    }
+
+    #[test]
+    fn read_from_file() {
+        let path = "../../test/config/config.toml";
+        match Config::new(path) {
+            Ok(c) => {
+                assert_eq!(
+                    c,
+                    Config {
+                        sup: Sup {
+                            socket: PathBuf::from_str(
+                                "/home/work/test/monitor/test-run/supd/run.sock"
+                            )
+                            .unwrap()
+                        },
+                        program: Program {
+                            process: Process {
+                                path: PathBuf::from_str(
+                                    "/home/work/test/monitor/test-run/conf/run.sh"
+                                )
+                                .unwrap(),
+                                args: None,
+                                envs: None,
+                                work_dir: PathBuf::from_str("/home/work/test/monitor/test-run")
+                                    .unwrap(),
+                                auto_start: true,
+                                start_interval: 5,
+                                restart_strategy: ProcessRestartStrategy::OnFailure,
+                            },
+                            log: Log {
+                                path: PathBuf::from_str(
+                                    "/home/work/test/monitor/test-run/log/run.log"
+                                )
+                                .unwrap(),
+                                max_size: 128,
+                                max_days: 30,
+                                max_backups: 16,
+                                compress: false,
+                                merge_compressed: false,
+                            }
+                        }
+                    }
+                )
+            }
+            Err(_) => {}
+        }
     }
 }
