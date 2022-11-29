@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+
+package process;
+
+message Response {
+	string msg = 1;
+	int32 supPid = 2;
+}
+
+message Request {}
+
+service HandleProcess {
+	rpc Start(Request) returns (Response);
+	rpc Stop(Request) returns (Response);
+	rpc Restart(Request) returns (Response);
+	rpc Reload(Request) returns (Response);
+	rpc Kill(Request) returns (Response);
+	rpc Status(Request) returns (Response);
+	rpc SupPid(Request) returns (Response);
+}
