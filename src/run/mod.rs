@@ -1,2 +1,2 @@
 mod error;
-mod threads;
+pub mod threads;

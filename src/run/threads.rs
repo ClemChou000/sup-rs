@@ -17,7 +17,7 @@ enum Msg {
     T(Task),
 }
 
-fn with_num(num: usize) -> Opt {
+pub fn with_num(num: usize) -> Opt {
     return Box::new(move |tp: &mut ThreadsPool| {
         tp.num = num;
     });

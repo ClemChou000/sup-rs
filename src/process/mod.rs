@@ -1,4 +1,4 @@
 mod client;
-mod command_grpc;
-mod controller;
+mod command;
+mod error;
 mod server;
