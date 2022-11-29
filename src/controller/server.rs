@@ -9,7 +9,7 @@ use log::error;
 use super::command::{CommandHandler, Request, Response, Transport, UnixSocketTp};
 use crate::run::threads::{with_num, ThreadsPool};
 
-struct Server<T, P>
+pub struct Server<T, P>
 where
     T: Transport<P>,
     P: Read + Write,
@@ -32,6 +32,7 @@ impl Server<UnixSocketTp, UnixStream> {
     }
 
     // TODO: gracefully shutdown
+    // TODO: log tracing
     fn run(self) {
         loop {
             match self.tsp.read() {

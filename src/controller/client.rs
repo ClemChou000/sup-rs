@@ -9,7 +9,7 @@ use super::{
     error::ProcessErr,
 };
 
-struct Client<T, P>
+pub struct Client<T, P>
 where
     T: Transport<P>,
     P: Read + Write,
