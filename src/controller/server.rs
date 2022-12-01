@@ -2,11 +2,15 @@ use std::{
     io::{Read, Write},
     marker,
     os::unix::net::UnixStream,
+    sync::Arc,
 };
 
 use log::error;
 
-use super::command::{CommandHandler, Request, Response, Transport, UnixSocketTp};
+use super::{
+    command::{CommandHandler, Request, Response, Transport, UnixSocketTp},
+    error::ProcessErr,
+};
 use crate::run::threads::{with_num, ThreadsPool};
 
 pub struct Server<T, P>
@@ -14,34 +18,42 @@ where
     T: Transport<P>,
     P: Read + Write,
 {
-    tsp: T,
+    tsp: Arc<T>,
     tp: ThreadsPool,
     _x: marker::PhantomData<P>,
 }
 
 impl Server<UnixSocketTp, UnixStream> {
-    pub fn new(socket_path: String) -> Self {
-        let mut tsp = UnixSocketTp::new(socket_path);
-        let mut tp = ThreadsPool::new(vec![with_num(4)]);
-        tp.add_task(Box::new(|| tsp.serve()));
-        Self {
+    pub fn new(socket_path: String) -> Result<Self, ProcessErr> {
+        let tsp = Arc::new(UnixSocketTp::new(socket_path));
+        let tp = ThreadsPool::new(vec![with_num(4)]);
+        let cp_tsp = tsp.clone();
+        if let Err(e) = tp.add_task(Box::new(move || cp_tsp.serve())) {
+            return Err(ProcessErr::CreateServerFailed(e.to_string()));
+        }
+        Ok(Self {
             tsp,
             tp,
             _x: marker::PhantomData,
-        }
+        })
     }
 
     // TODO: gracefully shutdown
     // TODO: log tracing
-    fn run(self) {
+    pub fn run(&self) {
         loop {
             match self.tsp.read() {
-                Ok(stream) => {
+                Ok(mut stream) => {
                     let mut v = Vec::<u8>::new();
-                    stream.read_to_end(&mut v);
-                    if let Err(e) = self.tp.add_task(Box::new(|| {
-                        let resp: Vec<u8> = self.handle_command(v.into()).into();
-                        stream.write(&resp[..]);
+                    if let Err(e) = stream.read_to_end(&mut v) {
+                        error!("read stream failed: {}", e);
+                        continue;
+                    }
+                    if let Err(e) = self.tp.add_task(Box::new(move || {
+                        let resp: Vec<u8> = Self::handle_command(v.into()).into();
+                        if let Err(e) = stream.write(&resp[..]) {
+                            error!("write to stream failed: {}", e)
+                        }
                     })) {
                         error!("add task to threadspool failed: {}", e)
                     }
@@ -53,67 +65,43 @@ impl Server<UnixSocketTp, UnixStream> {
         }
     }
 
-    fn start(&self) -> Response {
-        Response {
-            message: "start success".to_string(),
-            sup_pid: None,
-        }
+    fn start() -> Response {
+        Response::new("start success".to_string(), None)
     }
-    fn stop(&self) -> Response {
-        Response {
-            message: "stop success".to_string(),
-            sup_pid: None,
-        }
+    fn stop() -> Response {
+        Response::new("stop success".to_string(), None)
     }
-    fn restart(&self) -> Response {
-        Response {
-            message: "restart success".to_string(),
-            sup_pid: None,
-        }
+    fn restart() -> Response {
+        Response::new("restart success".to_string(), None)
     }
-    fn kill(&self) -> Response {
-        Response {
-            message: "kill success".to_string(),
-            sup_pid: None,
-        }
+    fn kill() -> Response {
+        Response::new("kill success".to_string(), None)
     }
-    fn reload(&self) -> Response {
-        Response {
-            message: "reload success".to_string(),
-            sup_pid: None,
-        }
+    fn reload() -> Response {
+        Response::new("reload success".to_string(), None)
     }
-    fn status(&self) -> Response {
-        Response {
-            message: "get status success".to_string(),
-            sup_pid: None,
-        }
+    fn status() -> Response {
+        Response::new("get status success".to_string(), None)
     }
-    fn exit(&self) -> Response {
-        Response {
-            message: "exit success".to_string(),
-            sup_pid: None,
-        }
+    fn exit() -> Response {
+        Response::new("exit success".to_string(), None)
     }
-    fn unknown(&self) -> Response {
-        Response {
-            message: "unknown command".to_string(),
-            sup_pid: None,
-        }
+    fn unknown() -> Response {
+        Response::new("unknown command".to_string(), None)
     }
 }
 
 impl CommandHandler for Server<UnixSocketTp, UnixStream> {
-    fn handle_command(&self, r: Request) -> Response {
+    fn handle_command(r: Request) -> Response {
         match r.cmd {
-            super::command::Command::Start => self.start(),
-            super::command::Command::Stop => self.stop(),
-            super::command::Command::Restart => self.restart(),
-            super::command::Command::Kill => self.kill(),
-            super::command::Command::Reload => self.reload(),
-            super::command::Command::Exit => self.exit(),
-            super::command::Command::Status => self.status(),
-            super::command::Command::Unknown => self.unknown(),
+            super::command::Command::Start => Self::start(),
+            super::command::Command::Stop => Self::stop(),
+            super::command::Command::Restart => Self::restart(),
+            super::command::Command::Kill => Self::kill(),
+            super::command::Command::Reload => Self::reload(),
+            super::command::Command::Exit => Self::exit(),
+            super::command::Command::Status => Self::status(),
+            super::command::Command::Unknown => Self::unknown(),
         }
     }
 }

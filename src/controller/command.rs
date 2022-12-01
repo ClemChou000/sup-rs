@@ -18,7 +18,7 @@ use crossbeam::{
 use super::error::ProcessErr;
 
 pub trait CommandHandler {
-    fn handle_command(&self, r: Request) -> Response;
+    fn handle_command(r: Request) -> Response;
 }
 
 pub trait Transport<T>
@@ -26,7 +26,7 @@ where
     T: Read + Write,
 {
     fn connect(&mut self);
-    fn serve(&mut self);
+    fn serve(&self);
     fn read(&self) -> Result<T, ProcessErr>;
     fn write(self, v: Vec<u8>) -> Result<T, ProcessErr>;
 }
@@ -58,7 +58,7 @@ impl Transport<UnixStream> for UnixSocketTp {
         self.stream = Some(stream);
     }
 
-    fn serve(&mut self) {
+    fn serve(&self) {
         if Path::new(self.socket_path.as_str()).exists() {
             fs::remove_file(self.socket_path.as_str()).unwrap();
         }
@@ -142,9 +142,16 @@ pub struct Request {
     pub cmd: Command,
 }
 
+#[derive(Debug)]
 pub struct Response {
     message: String,
     sup_pid: Option<u32>,
+}
+
+impl Response {
+    pub fn new(message: String, sup_pid: Option<u32>) -> Self {
+        Self { message, sup_pid }
+    }
 }
 
 impl From<Vec<u8>> for Command {
@@ -205,7 +212,7 @@ impl From<Vec<u8>> for Response {
     fn from(v: Vec<u8>) -> Self {
         let mut s = Self {
             message: String::new(),
-            sup_pid: 0,
+            sup_pid: Some(0),
         };
         s.unmarshal_sup_pid(v.index(..BYTES_PER_PID).to_vec());
         s.unmarshal_msg(v.index(BYTES_PER_PID..).to_vec());
@@ -219,7 +226,11 @@ impl Response {
     }
 
     fn marshal_sup_pid(&self) -> Vec<u8> {
-        let pid = self.sup_pid;
+        let pid = match self.sup_pid {
+            Some(pid) => pid,
+            None => 0,
+        };
+
         vec![
             (pid >> 24) as u8,
             (pid >> 16) as u8,
@@ -233,8 +244,14 @@ impl Response {
     }
 
     fn unmarshal_sup_pid(&mut self, v: Vec<u8>) {
+        let mut pid = match self.sup_pid {
+            Some(pid) => pid,
+            None => 0,
+        };
         for (i, e) in v.into_iter().enumerate() {
-            self.sup_pid += (e as u32) << (8 * i);
+            pid += (e as u32) << (8 * i);
         }
+
+        self.sup_pid = Some(pid);
     }
 }

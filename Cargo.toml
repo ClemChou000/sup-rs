@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 bus = "2.3.0"
+clap = { version = "4.0.29", features = ["derive"] }
 crossbeam = { version = "0.8.2", features = ["crossbeam-channel"] }
 crossbeam-utils = "0.8.12"
 env_logger = "0.9.1"
