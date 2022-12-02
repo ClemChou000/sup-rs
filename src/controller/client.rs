@@ -4,6 +4,8 @@ use std::{
     os::unix::net::UnixStream,
 };
 
+use log::debug;
+
 use super::{
     command::{Request, Response, Transport, UnixSocketTp},
     error::ProcessErr,
@@ -71,6 +73,7 @@ impl Client<UnixSocketTp, UnixStream> {
     }
 
     fn request(self, req: Request) -> Result<Response, ProcessErr> {
+        debug!("sending request {:?}", req);
         match self.tsp.write(req.into()) {
             Ok(mut resp_stream) => {
                 let mut v = Vec::<u8>::new();

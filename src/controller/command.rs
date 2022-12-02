@@ -11,7 +11,7 @@ use log::error;
 const BYTES_PER_PID: usize = 4;
 
 use crossbeam::{
-    channel::{Receiver, Sender},
+    channel::{unbounded, Receiver, Sender},
     select,
 };
 
@@ -40,11 +40,12 @@ pub struct UnixSocketTp {
 
 impl UnixSocketTp {
     pub fn new(socket_path: String) -> Self {
+        let (s, r) = unbounded();
         Self {
             socket_path,
             stream: None,
-            listen_recv: None,
-            listen_send: None,
+            listen_recv: Some(r),
+            listen_send: Some(s),
         }
     }
 }
@@ -126,6 +127,7 @@ impl Transport<UnixStream> for UnixSocketTp {
     }
 }
 
+#[derive(Debug)]
 pub enum Command {
     Start,
     Stop,
@@ -138,6 +140,7 @@ pub enum Command {
     Unknown,
 }
 
+#[derive(Debug)]
 pub struct Request {
     pub cmd: Command,
 }
@@ -221,6 +224,7 @@ impl From<Vec<u8>> for Response {
 }
 
 impl Response {
+    const NONE_PID: u32 = 0;
     fn marshal_msg(self) -> Vec<u8> {
         self.message.into_bytes()
     }
@@ -228,7 +232,7 @@ impl Response {
     fn marshal_sup_pid(&self) -> Vec<u8> {
         let pid = match self.sup_pid {
             Some(pid) => pid,
-            None => 0,
+            None => Self::NONE_PID,
         };
 
         vec![
@@ -246,10 +250,15 @@ impl Response {
     fn unmarshal_sup_pid(&mut self, v: Vec<u8>) {
         let mut pid = match self.sup_pid {
             Some(pid) => pid,
-            None => 0,
+            None => return,
         };
         for (i, e) in v.into_iter().enumerate() {
             pid += (e as u32) << (8 * i);
+        }
+
+        if pid == Self::NONE_PID {
+            self.sup_pid = None;
+            return;
         }
 
         self.sup_pid = Some(pid);
