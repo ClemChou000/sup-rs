@@ -6,6 +6,7 @@ use std::{
     path::Path,
 };
 
+use clap::{error::ErrorKind, Error, FromArgMatches, Subcommand};
 use log::error;
 
 const BYTES_PER_PID: usize = 4;
@@ -138,6 +139,62 @@ pub enum Command {
     Exit,
 
     Unknown,
+}
+
+impl FromArgMatches for Command {
+    fn from_arg_matches(matches: &clap::ArgMatches) -> Result<Self, clap::Error> {
+        match matches.subcommand() {
+            Some(("start", _)) => Ok(Self::Start),
+            Some(("stop", _)) => Ok(Self::Stop),
+            Some(("restart", _)) => Ok(Self::Restart),
+            Some(("kill", _)) => Ok(Self::Kill),
+            Some(("reload", _)) => Ok(Self::Reload),
+            Some(("status", _)) => Ok(Self::Status),
+            Some(("exit", _)) => Ok(Self::Exit),
+            Some((_, _)) => Err(Error::raw(
+                ErrorKind::InvalidSubcommand,
+                "invalid subcommands",
+            )),
+            None => Err(Error::raw(
+                ErrorKind::MissingSubcommand,
+                "missing subcommands",
+            )),
+        }
+    }
+    fn update_from_arg_matches(&mut self, _: &clap::ArgMatches) -> Result<(), clap::Error> {
+        Ok(())
+    }
+}
+
+impl Subcommand for Command {
+    fn augment_subcommands(cmd: clap::Command) -> clap::Command {
+        cmd
+    }
+
+    fn augment_subcommands_for_update(cmd: clap::Command) -> clap::Command {
+        cmd
+    }
+    fn has_subcommand(name: &str) -> bool {
+        matches!(
+            name,
+            "start" | "stop" | "restart" | "kill" | "reload" | "status" | "exit"
+        )
+    }
+}
+
+impl From<&str> for Command {
+    fn from(c: &str) -> Self {
+        match c {
+            "start" => Command::Start,
+            "stop" => Command::Stop,
+            "restart" => Command::Restart,
+            "kill" => Command::Kill,
+            "reload" => Command::Reload,
+            "status" => Command::Status,
+            "exit" => Command::Exit,
+            _ => Command::Unknown,
+        }
+    }
 }
 
 #[derive(Debug)]

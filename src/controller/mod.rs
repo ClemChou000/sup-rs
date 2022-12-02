@@ -1,4 +1,4 @@
 pub mod client;
-mod command;
+pub mod command;
 mod error;
 pub mod server;
