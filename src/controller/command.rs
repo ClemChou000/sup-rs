@@ -1,4 +1,5 @@
 use std::{
+    fmt::Display,
     fs,
     io::{Read, Write},
     ops::Index,
@@ -128,59 +129,67 @@ impl Transport<UnixStream> for UnixSocketTp {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Subcommand)]
 pub enum Command {
+    #[command(about = "start program asynchronously")]
     Start,
+    #[command(about = "stop program asynchronously")]
     Stop,
+    #[command(about = "restart program asynchronously")]
     Restart,
+    #[command(about = "kill program and all child processes")]
     Kill,
+    #[command(about = "reload program")]
     Reload,
+    #[command(about = "print status of program")]
     Status,
+    #[command(about = "exit the sup daemon and the process asynchronously")]
     Exit,
 
+    #[command(skip)]
     Unknown,
 }
 
-impl FromArgMatches for Command {
-    fn from_arg_matches(matches: &clap::ArgMatches) -> Result<Self, clap::Error> {
-        match matches.subcommand() {
-            Some(("start", _)) => Ok(Self::Start),
-            Some(("stop", _)) => Ok(Self::Stop),
-            Some(("restart", _)) => Ok(Self::Restart),
-            Some(("kill", _)) => Ok(Self::Kill),
-            Some(("reload", _)) => Ok(Self::Reload),
-            Some(("status", _)) => Ok(Self::Status),
-            Some(("exit", _)) => Ok(Self::Exit),
-            Some((_, _)) => Err(Error::raw(
-                ErrorKind::InvalidSubcommand,
-                "invalid subcommands",
-            )),
-            None => Err(Error::raw(
-                ErrorKind::MissingSubcommand,
-                "missing subcommands",
-            )),
-        }
-    }
-    fn update_from_arg_matches(&mut self, _: &clap::ArgMatches) -> Result<(), clap::Error> {
-        Ok(())
-    }
-}
+//impl FromArgMatches for Command {
+//fn from_arg_matches(matches: &clap::ArgMatches) -> Result<Self, clap::Error> {
+//match matches.subcommand() {
+//Some(("start", _)) => Ok(Self::Start),
+//Some(("stop", _)) => Ok(Self::Stop),
+//Some(("restart", _)) => Ok(Self::Restart),
+//Some(("kill", _)) => Ok(Self::Kill),
+//Some(("reload", _)) => Ok(Self::Reload),
+//Some(("status", _)) => Ok(Self::Status),
+//Some(("exit", _)) => Ok(Self::Exit),
+//Some((_, _)) => Err(Error::raw(
+//ErrorKind::InvalidSubcommand,
+//"invalid subcommands",
+//)),
+//None => Err(Error::raw(
+//ErrorKind::MissingSubcommand,
+//"missing subcommands",
+//)),
+//}
+//}
+//fn update_from_arg_matches(&mut self, _: &clap::ArgMatches) -> Result<(), clap::Error> {
+//Ok(())
+//}
+//}
 
-impl Subcommand for Command {
-    fn augment_subcommands(cmd: clap::Command) -> clap::Command {
-        cmd
-    }
+//impl Subcommand for Command {
+//fn augment_subcommands(cmd: clap::Command) -> clap::Command {
+//cmd
+//}
 
-    fn augment_subcommands_for_update(cmd: clap::Command) -> clap::Command {
-        cmd
-    }
-    fn has_subcommand(name: &str) -> bool {
-        matches!(
-            name,
-            "start" | "stop" | "restart" | "kill" | "reload" | "status" | "exit"
-        )
-    }
-}
+//fn augment_subcommands_for_update(cmd: clap::Command) -> clap::Command {
+//cmd
+//}
+//fn has_subcommand(name: &str) -> bool {
+//matches!(
+//name,
+//"start" | "stop" | "restart" | "kill" | "reload" | "status" | "exit"
+//)
+//}
+//}
 
 impl From<&str> for Command {
     fn from(c: &str) -> Self {
@@ -206,6 +215,15 @@ pub struct Request {
 pub struct Response {
     message: String,
     sup_pid: Option<u32>,
+}
+
+impl Display for Response {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.sup_pid {
+            Some(pid) => write!(f, "{}, pid is {}", self.message, pid),
+            None => write!(f, "{}", self.message),
+        }
+    }
 }
 
 impl Response {

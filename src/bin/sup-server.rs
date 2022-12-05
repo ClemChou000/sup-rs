@@ -1,7 +1,15 @@
+use clap::Parser;
 use env_logger;
 use std::io::Write;
-use sup_rs::controller::server::Server;
+use sup_rs::{config::config::Config, controller::server::Server};
 
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    // path to toml format config file
+    #[arg(short, long)]
+    config_path: String,
+}
 fn main() {
     env_logger::Builder::from_default_env()
         .format_timestamp_secs()
@@ -17,6 +25,16 @@ fn main() {
             )
         })
         .init();
-    let s = Server::new("./sup.sock".to_string());
-    s.unwrap().run();
+
+    let args = Args::parse();
+    let cfg = match Config::new(&args.config_path) {
+        Ok(c) => c,
+        Err(e) => panic!("create config failed: {}", e.to_string()),
+    };
+    match Server::new(cfg.sup.socket) {
+        Ok(s) => {
+            s.run();
+        }
+        Err(e) => panic!("create server failed: {}", e),
+    }
 }

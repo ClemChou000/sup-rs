@@ -1,9 +1,4 @@
-use std::{
-    collections::HashMap,
-    env, fs,
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::{collections::HashMap, env, fs, path::Path};
 
 use serde::Deserialize;
 
@@ -11,30 +6,30 @@ use super::error;
 
 #[derive(Debug, Deserialize, PartialEq)]
 pub struct Config {
-    sup: Sup,
-    program: Program,
+    pub sup: Sup,
+    pub program: Program,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
-struct Sup {
+pub struct Sup {
     #[serde(default = "default_socket")]
-    socket: PathBuf,
+    pub socket: String,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
-struct Program {
-    process: Process,
-    log: Log,
+pub struct Program {
+    pub process: Process,
+    pub log: Log,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all(deserialize = "camelCase"))]
-struct Process {
-    path: PathBuf,
+pub struct Process {
+    path: String,
     args: Option<Vec<String>>,
     envs: Option<HashMap<String, String>>,
     #[serde(default = "default_work_dir")]
-    work_dir: PathBuf,
+    work_dir: String,
     #[serde(default = "default_auto_start")]
     auto_start: bool,
     #[serde(rename = "startSeconds", default = "default_start_interval")]
@@ -45,8 +40,8 @@ struct Process {
 
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all(deserialize = "camelCase"))]
-struct Log {
-    path: PathBuf,
+pub struct Log {
+    path: String,
     #[serde(default = "default_max_size")]
     max_size: u64,
     #[serde(default = "default_max_days")]
@@ -85,38 +80,47 @@ impl Config {
 
         let mut t: Config = toml::from_str(s.as_str()).unwrap();
 
-        let work_dir = &t.program.process.work_dir;
-        if !work_dir.is_absolute() {
+        let work_dir_path = Path::new(&t.program.process.work_dir);
+        if !work_dir_path.is_absolute() {
             return Err(error::Error::FormatCheckError(
                 "work directory must be absolute".to_string(),
             ));
         }
 
-        let path = &t.program.process.path;
+        let path = Path::new(&t.program.process.path);
         if !path.is_absolute() {
-            t.program.process.path = Path::join(work_dir.as_path(), path);
+            t.program.process.path = Path::join(work_dir_path, path)
+                .to_str()
+                .unwrap()
+                .to_string();
         }
 
-        let socket = &t.sup.socket;
-        if !socket.is_absolute() {
-            t.sup.socket = Path::join(work_dir.as_path(), socket);
+        let socket_path = Path::new(&t.sup.socket);
+        if !socket_path.is_absolute() {
+            t.sup.socket = Path::join(work_dir_path, socket_path)
+                .to_str()
+                .unwrap()
+                .to_string();
         }
 
-        let logp = &t.program.log.path;
+        let logp = Path::new(&t.program.log.path);
         if !logp.is_absolute() {
-            t.program.log.path = Path::join(work_dir.as_path(), logp);
+            t.program.log.path = Path::join(work_dir_path, logp)
+                .to_str()
+                .unwrap()
+                .to_string();
         }
 
         Ok(t)
     }
 }
 
-fn default_socket() -> PathBuf {
-    PathBuf::from_str("./sup.sock").unwrap()
+fn default_socket() -> String {
+    "./sup.sock".to_string()
 }
 
-fn default_work_dir() -> PathBuf {
-    env::current_dir().unwrap()
+fn default_work_dir() -> String {
+    env::current_dir().unwrap().to_str().unwrap().to_string()
 }
 
 fn default_auto_start() -> bool {
@@ -180,23 +184,20 @@ maxSize = 128
             t,
             Config {
                 sup: Sup {
-                    socket: PathBuf::from_str("/home/work/test/monitor/test-run/supd/run.sock")
-                        .unwrap()
+                    socket: "/home/work/test/monitor/test-run/supd/run.sock".to_string()
                 },
                 program: Program {
                     process: Process {
-                        path: PathBuf::from_str("/home/work/test/monitor/test-run/conf/run.sh")
-                            .unwrap(),
+                        path: "/home/work/test/monitor/test-run/conf/run.sh".to_string(),
                         args: None,
                         envs: None,
-                        work_dir: PathBuf::from_str("/home/work/test/monitor/test-run").unwrap(),
+                        work_dir: "/home/work/test/monitor/test-run".to_string(),
                         auto_start: true,
                         start_interval: 5,
                         restart_strategy: ProcessRestartStrategy::OnFailure,
                     },
                     log: Log {
-                        path: PathBuf::from_str("/home/work/test/monitor/test-run/log/run.log")
-                            .unwrap(),
+                        path: "/home/work/test/monitor/test-run/log/run.log".to_string(),
                         max_size: 128,
                         max_days: 30,
                         max_backups: 16,
@@ -217,30 +218,20 @@ maxSize = 128
                     c,
                     Config {
                         sup: Sup {
-                            socket: PathBuf::from_str(
-                                "/home/work/test/monitor/test-run/supd/run.sock"
-                            )
-                            .unwrap()
+                            socket: "/home/work/test/monitor/test-run/supd/run.sock".to_string()
                         },
                         program: Program {
                             process: Process {
-                                path: PathBuf::from_str(
-                                    "/home/work/test/monitor/test-run/conf/run.sh"
-                                )
-                                .unwrap(),
+                                path: "/home/work/test/monitor/test-run/conf/run.sh".to_string(),
                                 args: None,
                                 envs: None,
-                                work_dir: PathBuf::from_str("/home/work/test/monitor/test-run")
-                                    .unwrap(),
+                                work_dir: "/home/work/test/monitor/test-run".to_string(),
                                 auto_start: true,
                                 start_interval: 5,
                                 restart_strategy: ProcessRestartStrategy::OnFailure,
                             },
                             log: Log {
-                                path: PathBuf::from_str(
-                                    "/home/work/test/monitor/test-run/log/run.log"
-                                )
-                                .unwrap(),
+                                path: "/home/work/test/monitor/test-run/log/run.log".to_string(),
                                 max_size: 128,
                                 max_days: 30,
                                 max_backups: 16,

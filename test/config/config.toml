@@ -1,5 +1,5 @@
 [sup]
-socket = "/home/work/test/monitor/test-run/supd/run.sock"
+socket = "/Users/zhangzelin/Desktop/code/rust/sup-rs/test/sup.sock"
 
 [program]
 [program.process]
