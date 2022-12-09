@@ -25,33 +25,33 @@ pub struct Program {
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all(deserialize = "camelCase"))]
 pub struct Process {
-    path: String,
-    args: Option<Vec<String>>,
-    envs: Option<HashMap<String, String>>,
+    pub path: String,
+    pub args: Option<Vec<String>>,
+    pub envs: Option<HashMap<String, String>>,
     #[serde(default = "default_work_dir")]
-    work_dir: String,
+    pub work_dir: String,
     #[serde(default = "default_auto_start")]
-    auto_start: bool,
+    pub auto_start: bool,
     #[serde(rename = "startSeconds", default = "default_start_interval")]
-    start_interval: u64,
+    pub start_interval: u64,
     #[serde(default = "default_restart_strategy")]
-    restart_strategy: ProcessRestartStrategy,
+    pub restart_strategy: ProcessRestartStrategy,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all(deserialize = "camelCase"))]
 pub struct Log {
-    path: String,
+    pub path: String,
     #[serde(default = "default_max_size")]
-    max_size: u64,
+    pub max_size: u64,
     #[serde(default = "default_max_days")]
-    max_days: u64,
+    pub max_days: u64,
     #[serde(default = "default_max_backups")]
-    max_backups: u64,
+    pub max_backups: u64,
     #[serde(default = "default_compress")]
-    compress: bool,
+    pub compress: bool,
     #[serde(default = "default_merge_compressed")]
-    merge_compressed: bool,
+    pub merge_compressed: bool,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
