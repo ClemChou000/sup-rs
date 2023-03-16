@@ -8,4 +8,7 @@ pub enum RotaterErr {
 
     #[error("path invalid {invalid_type} :{e}")]
     PathInvalid { invalid_type: String, e: String },
+
+    #[error("open file failed: [{0}]")]
+    OpenFileFailed(String),
 }

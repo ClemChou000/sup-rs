@@ -7,17 +7,21 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.66"
+async-compression = { version = "0.3.15", features = ["flate2", "tokio", "gzip"] }
 bus = "2.3.0"
 chrono = "0.4.23"
 clap = { version = "4.0.29", features = ["derive"] }
 crossbeam = { version = "0.8.2", features = ["crossbeam-channel"] }
 crossbeam-utils = "0.8.12"
+dashmap = "5.4.0"
 env_logger = "0.9.1"
+lazy_static = "1.4.0"
 log = "0.4.17"
 num_cpus = "1.14.0"
 serde = { version = "1.0.147", features = ["derive"] }
 serde_derive = "1.0.147"
 thiserror = "1.0.37"
+tokio = { version = "1.25.0", features = ["sync", "full"] }
 toml = "0.5.9"
 tracing = "0.1.37"
 tracing-subscriber = "0.3.16"

@@ -1,5 +1,6 @@
-use std::{collections::HashMap, env, fs, path::Path};
+use std::{collections::HashMap, env, fmt::Display, fs, path::Path};
 
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
 use super::error;
@@ -41,6 +42,8 @@ pub struct Process {
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all(deserialize = "camelCase"))]
 pub struct Log {
+    // path is the unique identifier for process
+    // rotater only handle single rotation for one path at the same time 
     pub path: String,
     #[serde(default = "default_max_size")]
     pub max_size: u64,
@@ -52,6 +55,12 @@ pub struct Log {
     pub compress: bool,
     #[serde(default = "default_merge_compressed")]
     pub merge_compressed: bool,
+}
+
+impl Display for Log {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[path:{}, max_size:{}, max_days:{}, max_backups:{}, compress:{}, merge_compressed:{}, rotate_time:{:?}]", self.path, self.max_size, self.max_days, self.max_backups, self.compress, self.merge_compressed, self.rotate_time)
+    }
 }
 
 #[derive(Debug, Deserialize, PartialEq)]

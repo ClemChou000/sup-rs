@@ -1,60 +1,86 @@
 use std::{
     ffi::OsStr,
-    fs::File,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
-use anyhow::{anyhow, Result};
-use log::info;
+use anyhow::{anyhow, Ok, Result};
+use dashmap::DashSet;
+use log::{error, info};
+use tokio::{
+    fs::File,
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    sync::mpsc,
+};
 
 use crate::config::config::Log;
 
 use super::error::RotaterErr::PathInvalid;
 
 pub struct Rotater {
-    file_path: String,
-
-    need_compress: bool,
-    need_merge_compress: bool,
-    file: Arc<Mutex<File>>,
+    // if recv none, finish
+    signal_rotate_recv: mpsc::Receiver<Log>,
+    signal_rotate_send: mpsc::Sender<Log>,
 }
 
+// rotater is singleton
 impl Rotater {
-    pub fn new(conf: Log) -> Result<Self> {
-        let f = match Self::create_file_from_path(&conf.path) {
-            Err(e) => return Err(anyhow!(e)),
-            Ok(f) => f,
+    pub fn new(channel_length: usize) -> Result<Self> {
+        let (send, recv) = mpsc::channel(channel_length);
+
+        let s = Self {
+            signal_rotate_send: send,
+            signal_rotate_recv: recv,
         };
 
-        Ok(Self {
-            file_path: conf.path,
-            file: Arc::new(Mutex::new(f)),
-            need_compress: conf.compress,
-            need_merge_compress: conf.merge_compressed,
-        })
+        tokio::spawn(async move { s.run().await });
+
+        Ok(s)
     }
 
-    fn rotate(&mut self) -> Result<()> {
-        let dir = Path::new(self.file_path.as_str())
-            .parent()
-            .unwrap_or(Path::new("/"));
-        let filepath = Self::format_path_by_time(&self.file_path);
+    // send log conf to backend rotater
+    pub async fn add_rotate_task(&self, conf: Log) {
+        if let Err(e) = self.signal_rotate_send.send(conf).await {
+            error!("add rotate task failed: {}", e)
+        }
+    }
+
+    async fn run(&mut self) {
+        let running_path = Arc::new(DashSet::<String>::new());
+
+        loop {
+            let received_log = match self.signal_rotate_recv.recv().await {
+                Some(r) => r,
+                None => return,
+            };
+
+            if running_path.contains(received_log.path.as_str()) {
+                continue;
+            }
+            // rotate time
+            let running_path = running_path.clone();
+            tokio::spawn(async move {
+                running_path.insert(received_log.path.as_str().to_string());
+                if let Err(e) = Self::rotate(&received_log).await {
+                    error!("rotate with conf {} failed: {}", received_log, e);
+                };
+                running_path.remove(received_log.path.as_str());
+            });
+        }
+    }
+
+    async fn rotate(conf: &Log) -> Result<()> {
+        let path = &conf.path;
+        let dir = Path::new(path.as_str()).parent().unwrap_or(Path::new("/"));
+        let filepath = Self::format_path_by_time(path);
         let rotated_target = dir.join(&filepath);
 
-        if let Err(e) = std::fs::rename(&self.file_path, &rotated_target) {
+        if let Err(e) = tokio::fs::rename(path, &rotated_target).await {
             return Err(anyhow!(PathInvalid {
                 invalid_type: "rename file failed".to_string(),
                 e: e.to_string()
             }));
         }
-
-        self.file = match Self::create_file_from_path(&filepath) {
-            Err(e) => {
-                return Err(e);
-            }
-            Ok(f) => Arc::new(Mutex::new(f)),
-        };
 
         info!(
             "rotated log {} to {}",
@@ -62,35 +88,50 @@ impl Rotater {
             rotated_target.to_str().unwrap_or("EMPTY")
         );
 
-        thread::spawn(move || {});
+        if conf.compress {
+            Self::gzip(rotated_target).await?
+        }
 
         Ok(())
     }
 
-    fn create_file_from_path<P: AsRef<Path>>(path: P) -> Result<File> {
-        let dir = path.as_ref().parent().unwrap_or(Path::new("/"));
-        if !dir.exists() {
-            if let Err(e) = std::fs::create_dir_all(dir) {
-                return Err(anyhow!(PathInvalid {
-                    invalid_type: "create dir failed".to_string(),
-                    e: e.to_string(),
-                }));
+    async fn gzip<P: AsRef<Path>>(path: P) -> Result<()> {
+        let file_input = File::open(path.as_ref()).await?;
+        let mut input = BufReader::new(file_input);
+
+        let path_output = match path.as_ref().as_os_str().to_str() {
+            Some(p) => p,
+            None => {
+                return Err(anyhow!("convert path {:?} to str empty", path.as_ref()));
             }
+        };
+
+        let path_output = format!("{}.gz", path_output);
+        let file_output = File::create(&path_output).await?;
+        let mut writer = async_compression::tokio::write::GzipEncoder::new(file_output);
+
+        let mut line = String::new();
+        if input.read_line(&mut line).await.is_ok() {
+            writer.write(line.as_bytes()).await?;
         }
 
-        match std::fs::OpenOptions::new()
+        info!("compress file {path_output}");
+        Ok(())
+    }
+
+    async fn create_file_from_path<P: AsRef<Path>>(path: P) -> Result<File> {
+        let dir = path.as_ref().parent().unwrap_or(Path::new("/"));
+        if !dir.exists() {
+            tokio::fs::create_dir_all(dir).await?;
+        }
+
+        Ok(tokio::fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(false)
             .append(true)
             .open(path)
-        {
-            Ok(f) => Ok(f),
-            Err(e) => Err(anyhow!(PathInvalid {
-                invalid_type: "open file failed".to_string(),
-                e: e.to_string(),
-            })),
-        }
+            .await?)
     }
 
     fn format_path_by_time<P: AsRef<Path>>(origin_path: P) -> PathBuf {
