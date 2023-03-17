@@ -7,7 +7,7 @@ use std::{
     path::Path,
 };
 
-use clap::{error::ErrorKind, Error, FromArgMatches, Subcommand};
+use clap::Subcommand;
 use log::error;
 
 const BYTES_PER_PID: usize = 4;

@@ -4,18 +4,16 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{anyhow, Ok, Result};
+use anyhow::{anyhow, Context, Ok, Result};
 use dashmap::DashSet;
 use log::{error, info};
 use tokio::{
     fs::File,
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
     sync::mpsc,
 };
 
 use crate::config::config::Log;
-
-use super::error::RotaterErr::PathInvalid;
 
 pub struct Rotater {
     // if recv none, finish
@@ -33,8 +31,6 @@ impl Rotater {
             signal_rotate_recv: recv,
         };
 
-        tokio::spawn(async move { s.run().await });
-
         Ok(s)
     }
 
@@ -45,7 +41,7 @@ impl Rotater {
         }
     }
 
-    async fn run(&mut self) {
+    pub async fn run(&mut self) {
         let running_path = Arc::new(DashSet::<String>::new());
 
         loop {
@@ -71,32 +67,33 @@ impl Rotater {
 
     async fn rotate(conf: &Log) -> Result<()> {
         let path = &conf.path;
-        let dir = Path::new(path.as_str()).parent().unwrap_or(Path::new("/"));
-        let filepath = Self::format_path_by_time(path);
-        let rotated_target = dir.join(&filepath);
 
-        if let Err(e) = tokio::fs::rename(path, &rotated_target).await {
-            return Err(anyhow!(PathInvalid {
-                invalid_type: "rename file failed".to_string(),
-                e: e.to_string()
-            }));
-        }
+        tokio::fs::File::create(path).await?;
+
+        let dir = Path::new(path.as_str()).parent().unwrap_or(Path::new("/"));
+        let rotated_filename = Self::format_path_by_time(path.as_ref());
+        let rotated_target = dir.join(rotated_filename);
+
+        tokio::fs::rename(path, &rotated_target).await?;
 
         info!(
             "rotated log {} to {}",
-            filepath.to_str().unwrap_or("EMPTY"),
+            path.as_str(),
             rotated_target.to_str().unwrap_or("EMPTY")
         );
 
         if conf.compress {
-            Self::gzip(rotated_target).await?
+            Self::gzip_from_path(rotated_target).await?
         }
 
         Ok(())
     }
 
-    async fn gzip<P: AsRef<Path>>(path: P) -> Result<()> {
-        let file_input = File::open(path.as_ref()).await?;
+    /// gzip file by path to file.gz and delete raw file
+    async fn gzip_from_path<P: AsRef<Path>>(path: P) -> Result<()> {
+        let file_input = File::open(path.as_ref())
+            .await
+            .context("open input file failed")?;
         let mut input = BufReader::new(file_input);
 
         let path_output = match path.as_ref().as_os_str().to_str() {
@@ -107,39 +104,94 @@ impl Rotater {
         };
 
         let path_output = format!("{}.gz", path_output);
-        let file_output = File::create(&path_output).await?;
-        let mut writer = async_compression::tokio::write::GzipEncoder::new(file_output);
+        let mut file_output = File::create(&path_output)
+            .await
+            .context("create output file failed")?;
 
-        let mut line = String::new();
-        if input.read_line(&mut line).await.is_ok() {
-            writer.write(line.as_bytes()).await?;
-        }
+        Self::gzip(&mut input, &mut file_output)
+            .await
+            .context("gzip file failed")?;
+
+        tokio::fs::remove_file(path).await?;
 
         info!("compress file {path_output}");
         Ok(())
     }
 
-    async fn create_file_from_path<P: AsRef<Path>>(path: P) -> Result<File> {
-        let dir = path.as_ref().parent().unwrap_or(Path::new("/"));
-        if !dir.exists() {
-            tokio::fs::create_dir_all(dir).await?;
-        }
+    async fn gzip<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
+        input: &mut R,
+        output: &mut W,
+    ) -> Result<()> {
+        let mut writer = async_compression::tokio::write::GzipEncoder::new(output);
 
-        Ok(tokio::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .append(true)
-            .open(path)
-            .await?)
+        tokio::io::copy(input, &mut writer)
+            .await
+            .context("gzip rotated log failed")?;
+
+        writer.shutdown().await?;
+        writer.into_inner().flush().await?;
+        Ok(())
     }
 
-    fn format_path_by_time<P: AsRef<Path>>(origin_path: P) -> PathBuf {
-        let now = chrono::Utc::now();
-        let p = origin_path.as_ref().to_owned();
-        let ext = p.extension().and_then(OsStr::to_str).unwrap_or_default();
-        let stem = p.file_stem().and_then(OsStr::to_str).unwrap_or_default();
+    async fn clean_extra_backups(dir: &Path) -> Result<()> {
+        let mut entrys = tokio::fs::read_dir(dir).await?;
+        while let Some(entry) = entrys.next_entry().await? {
+            entry.file_name();
+        }
+        Ok(())
+    }
 
-        Path::new(format!("{stem}-{}.{ext}", now.format("%Y%m%d%H%M%S")).as_str()).to_owned()
+    fn format_path_by_time<'a>(origin_path: &'a Path) -> &'a Path {
+        origin_path.into()
+    }
+}
+
+struct FormatPath<'a> {
+    ext: &'a str,
+    stem: &'a str,
+}
+
+impl<'a> From<&'a Path> for FormatPath<'a> {
+    fn from(value: &'a Path) -> Self {
+        let ext = value
+            .extension()
+            .and_then(OsStr::to_str)
+            .unwrap_or_default();
+        let stem = value
+            .file_stem()
+            .and_then(OsStr::to_str)
+            .unwrap_or_default();
+        Self { ext, stem }
+    }
+}
+
+impl<'a> Into<PathBuf> for FormatPath<'a> {
+    fn into(self) -> PathBuf {
+        let now = chrono::Utc::now();
+        format!("{}-{}.{}", self.stem, now.format("%Y%m%d%H%M%S"), self.ext)
+            .to_owned()
+            .into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use super::Rotater;
+
+    #[tokio::test]
+    async fn async_gzip_test() {
+        let mut input = Cursor::new(['1' as u8; 10]);
+        let mut output = Cursor::new(Vec::with_capacity(10));
+        Rotater::gzip(&mut input, &mut output).await.unwrap();
+
+        assert_eq!(
+            output.into_inner(),
+            vec![
+                31, 139, 8, 0, 0, 0, 0, 0, 0, 255, 50, 52, 132, 1, 0, 0, 0, 0, 255, 255, 3, 0, 49,
+                250, 88, 179, 10, 0, 0, 0
+            ]
+        );
     }
 }
