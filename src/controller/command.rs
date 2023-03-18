@@ -28,6 +28,12 @@ pub struct Request {
     pub cmd: Option<Command>,
 }
 
+impl Request {
+    pub fn new(cmd: Command) -> Self {
+        Self { cmd: Some(cmd) }
+    }
+}
+
 impl From<Vec<u8>> for Request {
     fn from(code: Vec<u8>) -> Self {
         if code.len() != 1 {

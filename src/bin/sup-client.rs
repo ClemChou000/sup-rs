@@ -1,5 +1,5 @@
 use clap::Parser;
-use log::error;
+use log::{error, info};
 use std::io::Write;
 use sup_rs::{
     config::config::Config,
@@ -20,7 +20,8 @@ struct Args {
     subcommand: Command,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     env_logger::Builder::from_default_env()
         .format_timestamp_secs()
         .format(|buf, record| {
@@ -40,6 +41,13 @@ fn main() {
         Ok(c) => c,
         Err(e) => panic!("create config failed: {}", e.to_string()),
     };
-    let cli = Client::new(cfg.sup.socket).unwrap();
-    cli.request(Request::new(args.subcommand)).await;
+    let cli = Client::new(cfg.sup.socket);
+    match cli.request(Request::new(args.subcommand)).await {
+        Ok(resp) => {
+            info!("get resp: {resp}")
+        }
+        Err(e) => {
+            error!("request failed: {e}")
+        }
+    }
 }

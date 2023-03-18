@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use log::{error, info};
+use log::{debug, error, info};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{UnixListener, UnixStream},
@@ -13,14 +13,13 @@ pub struct Server {
 
 impl Server {
     pub fn new(socket_path: String) -> Result<Self> {
-        let listener = UnixListener::bind(socket_path)
+        let listener = UnixListener::bind(&socket_path)
             .context(format!("bind socket path {socket_path} failed"))?;
 
         Ok(Self { listener })
     }
 
     pub async fn run(&self) {
-        let buf = Vec::<u8>::new();
         loop {
             match self.listener.accept().await {
                 Ok((mut socket, addr)) => {
@@ -39,10 +38,13 @@ impl Server {
     async fn handle_socket(socket: &mut UnixStream) -> Result<()> {
         let mut buf = String::new();
         socket.read_to_string(&mut buf).await?;
+        debug!("read socket done {}", buf);
 
         let req: Request = buf.as_bytes().to_vec().into();
         let res: Vec<u8> = Self::handle_command(req).into();
-        socket.write(&res).await?;
+        debug!("handle request done {:?}", res);
+        socket.write_all(&res).await?;
+        debug!("write socket done",);
         Ok(())
     }
 

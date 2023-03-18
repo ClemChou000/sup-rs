@@ -1,5 +1,6 @@
 use clap::Parser;
 use env_logger;
+use log::info;
 use std::io::Write;
 use sup_rs::{config::config::Config, controller::server::Server};
 
@@ -12,7 +13,7 @@ struct Args {
 }
 
 #[tokio::main]
-fn main() {
+async fn main() {
     env_logger::Builder::from_default_env()
         .format_timestamp_secs()
         .format(|buf, record| {
@@ -33,5 +34,6 @@ fn main() {
         Ok(c) => c,
         Err(e) => panic!("create config failed: {}", e.to_string()),
     };
+    info!("server start");
     Server::new(cfg.sup.socket).unwrap().run().await;
 }
