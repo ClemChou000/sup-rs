@@ -35,5 +35,5 @@ async fn main() {
         Err(e) => panic!("create config failed: {}", e.to_string()),
     };
     info!("server start");
-    Server::new(cfg.sup.socket).unwrap().run().await;
+    Server::new(cfg.sup.socket).await.unwrap().run().await;
 }

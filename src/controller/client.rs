@@ -28,16 +28,16 @@ impl Client {
             .await
             .context(format!("write request to {} failed", self.s))?;
 
+        stream.shutdown().await?;
         debug!("write request done");
 
-        //let mut resp = Vec::<u8>::new();
-        //let mut buf = [0; 1024];
-        //while stream.read(&mut buf).await.context("read resp failed")? != 0 {
-        //debug!("read resp");
-        //resp.append(&mut buf.to_vec());
-        //}
+        let mut resp = Vec::<u8>::new();
+        let mut buf = [0; 1024];
+        while stream.read(&mut buf).await.context("read resp failed")? != 0 {
+            debug!("read resp");
+            resp.append(&mut buf.to_vec());
+        }
 
-        //Ok(resp.into())
-        Ok(Response::new("123".to_string(), None))
+        Ok(resp.into())
     }
 }

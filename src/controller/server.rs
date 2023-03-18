@@ -1,6 +1,9 @@
+use std::path::Path;
+
 use anyhow::{Context, Result};
 use log::{debug, error, info};
 use tokio::{
+    fs,
     io::{AsyncReadExt, AsyncWriteExt},
     net::{UnixListener, UnixStream},
 };
@@ -12,9 +15,14 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(socket_path: String) -> Result<Self> {
-        let listener = UnixListener::bind(&socket_path)
-            .context(format!("bind socket path {socket_path} failed"))?;
+    pub async fn new<P: AsRef<Path>>(socket_path: P) -> Result<Self> {
+        if socket_path.as_ref().exists() && UnixStream::connect(&socket_path).await.is_err() {
+            fs::remove_file(&socket_path.as_ref()).await?;
+        }
+        let listener = UnixListener::bind(&socket_path).context(format!(
+            "bind socket path {:?} failed",
+            socket_path.as_ref()
+        ))?;
 
         Ok(Self { listener })
     }
@@ -44,6 +52,7 @@ impl Server {
         let res: Vec<u8> = Self::handle_command(req).into();
         debug!("handle request done {:?}", res);
         socket.write_all(&res).await?;
+        socket.shutdown().await?;
         debug!("write socket done",);
         Ok(())
     }
