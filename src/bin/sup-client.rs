@@ -3,7 +3,10 @@ use log::error;
 use std::io::Write;
 use sup_rs::{
     config::config::Config,
-    controller::{client::Client, command::Command},
+    controller::{
+        client::Client,
+        command::{Command, Request},
+    },
 };
 
 #[derive(Parser, Debug)]
@@ -37,37 +40,6 @@ fn main() {
         Ok(c) => c,
         Err(e) => panic!("create config failed: {}", e.to_string()),
     };
-    let cli = Client::new(cfg.sup.socket);
-
-    match args.subcommand {
-        Command::Start => match cli.start() {
-            Ok(r) => print!("{}", r),
-            Err(e) => error!("exec command start failed: {}", e),
-        },
-        Command::Stop => match cli.stop() {
-            Ok(r) => print!("{}", r),
-            Err(e) => error!("exec command stop failed: {}", e),
-        },
-        Command::Restart => match cli.restart() {
-            Ok(r) => print!("{}", r),
-            Err(e) => error!("exec command restart failed: {}", e),
-        },
-        Command::Kill => match cli.kill() {
-            Ok(r) => print!("{}", r),
-            Err(e) => error!("exec command kill failed: {}", e),
-        },
-        Command::Reload => match cli.reload() {
-            Ok(r) => print!("{}", r),
-            Err(e) => error!("exec command reload failed: {}", e),
-        },
-        Command::Exit => match cli.exit() {
-            Ok(r) => print!("{}", r),
-            Err(e) => error!("exec command exit failed: {}", e),
-        },
-        Command::Status => match cli.status() {
-            Ok(r) => print!("{}", r),
-            Err(e) => error!("exec command status failed: {}", e),
-        },
-        Command::Unknown => print!("unknown command"),
-    }
+    let cli = Client::new(cfg.sup.socket).unwrap();
+    cli.request(Request::new(args.subcommand)).await;
 }

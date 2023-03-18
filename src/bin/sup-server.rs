@@ -10,6 +10,8 @@ struct Args {
     #[arg(short, long)]
     config_path: String,
 }
+
+#[tokio::main]
 fn main() {
     env_logger::Builder::from_default_env()
         .format_timestamp_secs()
@@ -31,10 +33,5 @@ fn main() {
         Ok(c) => c,
         Err(e) => panic!("create config failed: {}", e.to_string()),
     };
-    match Server::new(cfg.sup.socket) {
-        Ok(s) => {
-            s.run();
-        }
-        Err(e) => panic!("create server failed: {}", e),
-    }
+    Server::new(cfg.sup.socket).unwrap().run().await;
 }

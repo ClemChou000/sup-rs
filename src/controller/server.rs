@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use log::{error, info};
 use tokio::{
-    io::AsyncReadExt,
+    io::{AsyncReadExt, AsyncWriteExt},
     net::{UnixListener, UnixStream},
 };
 
@@ -15,15 +15,17 @@ impl Server {
     pub fn new(socket_path: String) -> Result<Self> {
         let listener = UnixListener::bind(socket_path)
             .context(format!("bind socket path {socket_path} failed"))?;
+
+        Ok(Self { listener })
     }
 
     pub async fn run(&self) {
         let buf = Vec::<u8>::new();
         loop {
             match self.listener.accept().await {
-                Ok(socket, addr) => {
-                    info!("accept socket from {addr}");
-                    if let Err(e) = Self::handle_socket(socket).await {
+                Ok((mut socket, addr)) => {
+                    info!("accept socket from {:?}", addr);
+                    if let Err(e) = Self::handle_socket(&mut socket).await {
                         error!("handle socket failed: {e}")
                     };
                 }
@@ -34,11 +36,13 @@ impl Server {
         }
     }
 
-    async fn handle_socket(socket: UnixStream) -> Result<()> {
-        let mut buf = Vec::<u8>::new();
-        socket.read_to_string(buf).await?;
-        let r: Request = buf.into();
+    async fn handle_socket(socket: &mut UnixStream) -> Result<()> {
+        let mut buf = String::new();
+        socket.read_to_string(&mut buf).await?;
 
+        let req: Request = buf.as_bytes().to_vec().into();
+        let res: Vec<u8> = Self::handle_command(req).into();
+        socket.write(&res).await?;
         Ok(())
     }
 
@@ -68,15 +72,18 @@ impl Server {
     }
 
     fn handle_command(r: Request) -> Response {
-        match r.cmd {
-            super::command::Command::Start => Self::start(),
-            super::command::Command::Stop => Self::stop(),
-            super::command::Command::Restart => Self::restart(),
-            super::command::Command::Kill => Self::kill(),
-            super::command::Command::Reload => Self::reload(),
-            super::command::Command::Exit => Self::exit(),
-            super::command::Command::Status => Self::status(),
-            super::command::Command::Unknown => Self::unknown(),
+        if let Some(cmd) = r.cmd {
+            match cmd {
+                super::command::Command::Start => Self::start(),
+                super::command::Command::Stop => Self::stop(),
+                super::command::Command::Restart => Self::restart(),
+                super::command::Command::Kill => Self::kill(),
+                super::command::Command::Reload => Self::reload(),
+                super::command::Command::Exit => Self::exit(),
+                super::command::Command::Status => Self::status(),
+            }
+        } else {
+            Self::unknown()
         }
     }
 }
