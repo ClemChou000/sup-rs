@@ -1,68 +1,45 @@
-use std::{
-    io::{Read, Write},
-    marker,
-    os::unix::net::UnixStream,
-    sync::Arc,
+use anyhow::{Context, Result};
+use log::{error, info};
+use tokio::{
+    io::AsyncReadExt,
+    net::{UnixListener, UnixStream},
 };
 
-use log::error;
+use super::command::{Request, Response};
 
-use super::{
-    command::{CommandHandler, Request, Response, Transport, UnixSocketTp},
-    error::ProcessErr,
-};
-use crate::run::threads::{with_num, ThreadsPool};
-
-pub struct Server<T, P>
-where
-    T: Transport<P>,
-    P: Read + Write,
-{
-    tsp: Arc<T>,
-    tp: ThreadsPool,
-    _x: marker::PhantomData<P>,
+pub struct Server {
+    listener: UnixListener,
 }
 
-impl Server<UnixSocketTp, UnixStream> {
-    pub fn new(socket_path: String) -> Result<Self, ProcessErr> {
-        let tsp = Arc::new(UnixSocketTp::new(socket_path));
-        let tp = ThreadsPool::new(vec![with_num(4)]);
-        let cp_tsp = tsp.clone();
-        if let Err(e) = tp.add_task(Box::new(move || cp_tsp.serve())) {
-            return Err(ProcessErr::CreateServerFailed(e.to_string()));
-        }
-        Ok(Self {
-            tsp,
-            tp,
-            _x: marker::PhantomData,
-        })
+impl Server {
+    pub fn new(socket_path: String) -> Result<Self> {
+        let listener = UnixListener::bind(socket_path)
+            .context(format!("bind socket path {socket_path} failed"))?;
     }
 
-    // TODO: gracefully shutdown
-    // TODO: log tracing
-    pub fn run(&self) {
+    pub async fn run(&self) {
+        let buf = Vec::<u8>::new();
         loop {
-            match self.tsp.read() {
-                Ok(mut stream) => {
-                    let mut v = Vec::<u8>::new();
-                    if let Err(e) = stream.read_to_end(&mut v) {
-                        error!("read stream failed: {}", e);
-                        continue;
-                    }
-                    if let Err(e) = self.tp.add_task(Box::new(move || {
-                        let resp: Vec<u8> = Self::handle_command(v.into()).into();
-                        if let Err(e) = stream.write(&resp[..]) {
-                            error!("write to stream failed: {}", e)
-                        }
-                    })) {
-                        error!("add task to threadspool failed: {}", e)
-                    }
+            match self.listener.accept().await {
+                Ok(socket, addr) => {
+                    info!("accept socket from {addr}");
+                    if let Err(e) = Self::handle_socket(socket).await {
+                        error!("handle socket failed: {e}")
+                    };
                 }
                 Err(e) => {
-                    error!("read from threadspoll failed: {}", e);
+                    error!("accept socket failed: {e}");
                 }
             }
         }
+    }
+
+    async fn handle_socket(socket: UnixStream) -> Result<()> {
+        let mut buf = Vec::<u8>::new();
+        socket.read_to_string(buf).await?;
+        let r: Request = buf.into();
+
+        Ok(())
     }
 
     fn start() -> Response {
@@ -89,9 +66,7 @@ impl Server<UnixSocketTp, UnixStream> {
     fn unknown() -> Response {
         Response::new("unknown command".to_string(), None)
     }
-}
 
-impl CommandHandler for Server<UnixSocketTp, UnixStream> {
     fn handle_command(r: Request) -> Response {
         match r.cmd {
             super::command::Command::Start => Self::start(),

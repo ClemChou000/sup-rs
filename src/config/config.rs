@@ -49,7 +49,7 @@ pub struct Log {
     #[serde(default = "default_max_days")]
     pub max_days: u64,
     #[serde(default = "default_max_backups")]
-    pub max_backups: u64,
+    pub max_backups: usize,
     #[serde(default = "default_compress")]
     pub compress: bool,
     #[serde(default = "default_merge_compressed")]
@@ -160,7 +160,7 @@ fn default_max_days() -> u64 {
     0
 }
 
-fn default_max_backups() -> u64 {
+fn default_max_backups() -> usize {
     32
 }
 

@@ -1,133 +1,8 @@
-use std::{
-    fmt::Display,
-    fs,
-    io::{Read, Write},
-    ops::Index,
-    os::unix::net::{UnixListener, UnixStream},
-    path::Path,
-};
+use std::fmt::Display;
 
 use clap::Subcommand;
-use log::error;
 
 const BYTES_PER_PID: usize = 4;
-
-use crossbeam::{
-    channel::{unbounded, Receiver, Sender},
-    select,
-};
-
-use super::error::ProcessErr;
-
-pub trait CommandHandler {
-    fn handle_command(r: Request) -> Response;
-}
-
-pub trait Transport<T>
-where
-    T: Read + Write,
-{
-    fn connect(&mut self);
-    fn serve(&self);
-    fn read(&self) -> Result<T, ProcessErr>;
-    fn write(self, v: Vec<u8>) -> Result<T, ProcessErr>;
-}
-
-pub struct UnixSocketTp {
-    socket_path: String,
-    stream: Option<UnixStream>,
-    listen_recv: Option<Receiver<UnixStream>>,
-    listen_send: Option<Sender<UnixStream>>,
-}
-
-impl UnixSocketTp {
-    pub fn new(socket_path: String) -> Self {
-        let (s, r) = unbounded();
-        Self {
-            socket_path,
-            stream: None,
-            listen_recv: Some(r),
-            listen_send: Some(s),
-        }
-    }
-}
-
-impl Transport<UnixStream> for UnixSocketTp {
-    fn connect(&mut self) {
-        let stream = match UnixStream::connect(self.socket_path.as_str()) {
-            Err(e) => panic!("connect to socket {} failed: {}", self.socket_path, e),
-            Ok(stream) => stream,
-        };
-        self.stream = Some(stream);
-    }
-
-    fn serve(&self) {
-        if Path::new(self.socket_path.as_str()).exists() {
-            fs::remove_file(self.socket_path.as_str()).unwrap();
-        }
-
-        let listener = match UnixListener::bind(self.socket_path.as_str()) {
-            Err(e) => panic!("bind socket {} failed: {}", self.socket_path, e),
-            Ok(l) => l,
-        };
-
-        loop {
-            let (unix_stream, _) = match listener.accept() {
-                Ok((s, a)) => (s, a),
-                Err(e) => {
-                    error!("accept stream failed: {}", e);
-                    continue;
-                }
-            };
-            match &self.listen_send {
-                Some(s) => match s.send(unix_stream) {
-                    Ok(_) => {}
-                    Err(e) => error!("send to channel failed: {}", e),
-                },
-                None => error!("listen channel must be inited before used"),
-            }
-        }
-    }
-
-    fn read(&self) -> Result<UnixStream, ProcessErr> {
-        match &self.listen_recv {
-            Some(rcv) => {
-                select! {
-                recv(rcv) -> msg => {
-                    match msg {
-                        Ok(t) => {
-                            Ok(t)
-                        },
-                        Err(e) => {
-                            Err(ProcessErr::ReadFromChannelFail(e.to_string()))
-                        },
-                    }
-                }
-                }
-            }
-            None => Err(ProcessErr::ChannelUsedBeforeInited("recv".to_string())),
-        }
-    }
-
-    // TODO: convert self to &mut self?
-    fn write(self, v: Vec<u8>) -> Result<UnixStream, ProcessErr> {
-        match self.stream {
-            Some(mut s) => match s.write(v.index(..)) {
-                Ok(_) => {
-                    if let Err(e) = s.shutdown(std::net::Shutdown::Write) {
-                        return Err(ProcessErr::ShutdownStreamFailed(
-                            "write".to_string(),
-                            e.to_string(),
-                        ));
-                    }
-                    Ok(s)
-                }
-                Err(e) => Err(ProcessErr::WriteToStreamFailed(e.to_string())),
-            },
-            None => Err(ProcessErr::StreamUsedBeforeInited("write".to_string())),
-        }
-    }
-}
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
@@ -145,63 +20,19 @@ pub enum Command {
     Status,
     #[command(about = "exit the sup daemon and the process asynchronously")]
     Exit,
-
-    #[command(skip)]
-    Unknown,
 }
 
-//impl FromArgMatches for Command {
-//fn from_arg_matches(matches: &clap::ArgMatches) -> Result<Self, clap::Error> {
-//match matches.subcommand() {
-//Some(("start", _)) => Ok(Self::Start),
-//Some(("stop", _)) => Ok(Self::Stop),
-//Some(("restart", _)) => Ok(Self::Restart),
-//Some(("kill", _)) => Ok(Self::Kill),
-//Some(("reload", _)) => Ok(Self::Reload),
-//Some(("status", _)) => Ok(Self::Status),
-//Some(("exit", _)) => Ok(Self::Exit),
-//Some((_, _)) => Err(Error::raw(
-//ErrorKind::InvalidSubcommand,
-//"invalid subcommands",
-//)),
-//None => Err(Error::raw(
-//ErrorKind::MissingSubcommand,
-//"missing subcommands",
-//)),
-//}
-//}
-//fn update_from_arg_matches(&mut self, _: &clap::ArgMatches) -> Result<(), clap::Error> {
-//Ok(())
-//}
-//}
-
-//impl Subcommand for Command {
-//fn augment_subcommands(cmd: clap::Command) -> clap::Command {
-//cmd
-//}
-
-//fn augment_subcommands_for_update(cmd: clap::Command) -> clap::Command {
-//cmd
-//}
-//fn has_subcommand(name: &str) -> bool {
-//matches!(
-//name,
-//"start" | "stop" | "restart" | "kill" | "reload" | "status" | "exit"
-//)
-//}
-//}
-
-impl From<&str> for Command {
+impl From<&str> for Option<Command> {
     fn from(c: &str) -> Self {
         match c {
-            "start" => Command::Start,
-            "stop" => Command::Stop,
-            "restart" => Command::Restart,
-            "kill" => Command::Kill,
-            "reload" => Command::Reload,
-            "status" => Command::Status,
-            "exit" => Command::Exit,
-            _ => Command::Unknown,
+            "start" => Some(Command::Start),
+            "stop" => Some(Command::Stop),
+            "restart" => Some(Command::Restart),
+            "kill" => Some(Command::Kill),
+            "reload" => Some(Command::Reload),
+            "status" => Some(Command::Status),
+            "exit" => Some(Command::Exit),
+            _ => None,
         }
     }
 }
@@ -232,20 +63,20 @@ impl Response {
     }
 }
 
-impl From<Vec<u8>> for Command {
+impl From<Vec<u8>> for Option<Command> {
     fn from(code: Vec<u8>) -> Self {
         if code.len() != 1 {
-            return Self::Unknown;
+            return None;
         }
         match code.get(0).unwrap() {
-            0 => Self::Start,
-            1 => Self::Stop,
-            2 => Self::Restart,
-            3 => Self::Kill,
-            4 => Self::Reload,
-            5 => Self::Status,
-            6 => Self::Exit,
-            _ => Self::Unknown,
+            0 => Some(Self::Start),
+            1 => Some(Self::Stop),
+            2 => Some(Self::Restart),
+            3 => Some(Self::Kill),
+            4 => Some(Self::Reload),
+            5 => Some(Self::Status),
+            6 => Some(Self::Exit),
+            _ => Some(Self::Unknown),
         }
     }
 }

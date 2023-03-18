@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Ok, Result};
+use chrono::{DateTime, Days, TimeZone, Utc};
 use dashmap::DashSet;
 use log::{error, info};
 use tokio::{
@@ -14,6 +15,8 @@ use tokio::{
 };
 
 use crate::config::config::Log;
+
+const TIME_FORMAT: &str = "%Y%m%d%H%M%S";
 
 pub struct Rotater {
     // if recv none, finish
@@ -71,7 +74,7 @@ impl Rotater {
         tokio::fs::File::create(path).await?;
 
         let dir = Path::new(path.as_str()).parent().unwrap_or(Path::new("/"));
-        let rotated_filename = Self::format_path_by_time(path.as_ref());
+        let rotated_filename = Self::format_path_by_time(path, Utc::now());
         let rotated_target = dir.join(rotated_filename);
 
         tokio::fs::rename(path, &rotated_target).await?;
@@ -83,8 +86,19 @@ impl Rotater {
         );
 
         if conf.compress {
-            Self::gzip_from_path(rotated_target).await?
+            Self::gzip_from_path(rotated_target).await?;
         }
+
+        Self::clean_extra_backups(
+            dir,
+            Path::new(path).file_stem().unwrap(),
+            Utc::now()
+                .checked_sub_days(Days::new(conf.max_days))
+                .unwrap(),
+            conf.max_backups,
+        )
+        .await
+        .context("clean extra backups failed")?;
 
         Ok(())
     }
@@ -133,44 +147,120 @@ impl Rotater {
         Ok(())
     }
 
-    async fn clean_extra_backups(dir: &Path) -> Result<()> {
+    /// deadline = current time - roatate duration
+    /// origin_filename = {test}-20230317200700.log.gz
+    async fn clean_extra_backups(
+        dir: &Path,
+        origin_filename: &OsStr,
+        deadline: DateTime<Utc>,
+        max_backups: usize,
+    ) -> Result<()> {
         let mut entrys = tokio::fs::read_dir(dir).await?;
+        let mut filename_vec = Vec::new();
         while let Some(entry) = entrys.next_entry().await? {
-            entry.file_name();
+            if entry.file_type().await?.is_dir()
+                || entry
+                    .file_name()
+                    .to_str()
+                    .unwrap()
+                    .to_string()
+                    .starts_with(origin_filename.to_str().unwrap())
+            {
+                continue;
+            }
+            let t =
+                Self::parse_path_to_time(entry.file_name()).context("parse path to time failed")?;
+            if t < deadline {
+                // remove file
+                tokio::fs::remove_file(dir.join(entry.file_name()))
+                    .await
+                    .context("remove backup file failed")?;
+                continue;
+            }
+            filename_vec.push(entry.file_name());
+        }
+
+        if filename_vec.len() <= max_backups {
+            return Ok(());
+        }
+
+        let topk_filename = top_k(&mut filename_vec, max_backups);
+        let topk_time = Self::parse_path_to_time(topk_filename)?;
+        for n in &filename_vec {
+            if Self::parse_path_to_time(n).context("parse topk time failed")? < topk_time {
+                tokio::fs::remove_file(dir.join(n))
+                    .await
+                    .context("remove topk files failed")?;
+            }
         }
         Ok(())
     }
 
-    fn format_path_by_time<'a>(origin_path: &'a Path) -> &'a Path {
-        origin_path.into()
+    fn parse_path_to_time<P: AsRef<Path>>(path: P) -> Result<DateTime<Utc>> {
+        let ts = path
+            .as_ref()
+            .file_stem()
+            .and_then(OsStr::to_str)
+            .unwrap()
+            .split('-')
+            .last()
+            .unwrap();
+        Utc.datetime_from_str(ts, TIME_FORMAT)
+            .context("convert str to time failed")
     }
-}
 
-struct FormatPath<'a> {
-    ext: &'a str,
-    stem: &'a str,
-}
-
-impl<'a> From<&'a Path> for FormatPath<'a> {
-    fn from(value: &'a Path) -> Self {
-        let ext = value
+    fn format_path_by_time<P: AsRef<Path>>(origin_path: P, t: DateTime<Utc>) -> PathBuf {
+        let ext = origin_path
+            .as_ref()
             .extension()
             .and_then(OsStr::to_str)
             .unwrap_or_default();
-        let stem = value
+        let stem = origin_path
+            .as_ref()
             .file_stem()
             .and_then(OsStr::to_str)
             .unwrap_or_default();
-        Self { ext, stem }
+        Path::new(format!("{}-{}.{}", stem, t.format(TIME_FORMAT), ext).as_str()).to_owned()
     }
 }
 
-impl<'a> Into<PathBuf> for FormatPath<'a> {
-    fn into(self) -> PathBuf {
-        let now = chrono::Utc::now();
-        format!("{}-{}.{}", self.stem, now.format("%Y%m%d%H%M%S"), self.ext)
-            .to_owned()
-            .into()
+// k in range [1, len(v)]
+fn top_k<T: PartialOrd>(v: &mut Vec<T>, k: usize) -> &T {
+    quick_select(v, 0, v.len() - 1, k)
+}
+
+fn quick_select<T: PartialOrd>(v: &mut Vec<T>, left: usize, right: usize, k: usize) -> &T {
+    if left == right {
+        return &v[left];
+    }
+
+    let mut mid_index = left;
+
+    let (mut i, mut j) = (left, right + 1);
+    while i < j {
+        if i != left {
+            i += 1;
+        }
+        while &v[i] < &v[mid_index] {
+            i += 1;
+        }
+        j -= 1;
+        while &v[j] > &v[mid_index] {
+            j -= 1;
+        }
+        if i < j {
+            v.swap(i, j);
+            if i == mid_index {
+                mid_index = j
+            }
+        }
+    }
+
+    let sl = j - left + 1;
+    if k <= sl {
+        quick_select(v, left, j, k)
+    } else {
+        quick_select(v, j + 1, right, k - sl)
     }
 }
 
@@ -178,7 +268,9 @@ impl<'a> Into<PathBuf> for FormatPath<'a> {
 mod tests {
     use std::io::Cursor;
 
-    use super::Rotater;
+    use chrono::{TimeZone, Utc};
+
+    use super::*;
 
     #[tokio::test]
     async fn async_gzip_test() {
@@ -193,5 +285,27 @@ mod tests {
                 250, 88, 179, 10, 0, 0, 0
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn async_parse_and_format_time_test() {
+        let t = Utc.with_ymd_and_hms(2023, 3, 17, 20, 07, 00).unwrap();
+        let path = Rotater::format_path_by_time("test.log", t);
+
+        assert_eq!("test-20230317200700.log", path.to_str().unwrap());
+        assert_eq!(Rotater::parse_path_to_time(path.as_path()).unwrap(), t);
+    }
+
+    #[test]
+    fn quick_select_test() {
+        let mut v = vec![1, 4, 8, 3, 2, 5];
+        let lenv = v.len() - 1;
+        assert_eq!(quick_select(&mut v, 0, lenv, 1), &1);
+        assert_eq!(quick_select(&mut v, 0, lenv, 2), &2);
+        assert_eq!(quick_select(&mut v, 0, lenv, 3), &3);
+        assert_eq!(quick_select(&mut v, 0, lenv, 4), &4);
+        assert_eq!(quick_select(&mut v, 0, lenv, 5), &5);
+        assert_eq!(quick_select(&mut v, 0, lenv, 6), &8);
+        assert_eq!(quick_select(&mut v, 0, lenv, 7), &8);
     }
 }
