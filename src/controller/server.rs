@@ -8,10 +8,14 @@ use tokio::{
     net::{UnixListener, UnixStream},
 };
 
-use super::command::{Request, Response};
+use super::{
+    command::{Request, Response},
+    controller::ProcessController,
+};
 
 pub struct Server {
     listener: UnixListener,
+    controller: ProcessController,
 }
 
 impl Server {
@@ -58,6 +62,9 @@ impl Server {
     }
 
     fn start() -> Response {
+        info!("starting program");
+        // if program is running, return
+        //
         Response::new("start success".to_string(), None)
     }
     fn stop() -> Response {
@@ -97,4 +104,7 @@ impl Server {
             Self::unknown()
         }
     }
+}
+impl Drop for Server {
+    fn drop(&mut self) {}
 }

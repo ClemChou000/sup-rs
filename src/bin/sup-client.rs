@@ -25,8 +25,7 @@ async fn main() {
     env_logger::Builder::from_default_env()
         .format_timestamp_secs()
         .format(|buf, record| {
-            writeln!(
-                buf,
+            writeln!(buf,
                 "{} - {} - {} - {}",
                 buf.timestamp(),
                 record.file().unwrap(),
